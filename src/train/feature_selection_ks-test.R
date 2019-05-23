@@ -23,4 +23,4 @@ kstest %>%
   arrange(pvalue) %>% 
   filter(pvalue > 0.1) %>% 
   .$feature %>% 
-  write_rds("data/features/features_kstest.RDS")
+  write_rds("data/features/features_kstest.rds")

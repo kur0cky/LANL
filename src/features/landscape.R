@@ -161,6 +161,6 @@ write_csv(land_q50, "data/processed/land_q50.csv")
 tibble(land_mean = sapply(lapply(lands, unlist), mean),
        land_median = sapply(lapply(lands, unlist), median),
        land_sd = sapply(lapply(lands, unlist), sd),
-       land_q10 = sapply(lapply(lands, unlist), quantile, prob=.1),
+       land_q25 = sapply(lapply(lands, unlist), quantile, prob=.25),
        land_q90 = sapply(lapply(lands, unlist), quantile, prob = .9)) %>% 
   write_csv("data/features/landscape.csv")
