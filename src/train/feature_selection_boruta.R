@@ -15,7 +15,7 @@ tr <- read_csv("data/features/features.csv") %>%
 set.seed(111)
 res_boruta <- Boruta(TTF ~ .,
                      data = tr,
-                     maxRuns = 200,
+                     maxRuns = 100,
                      doTrace=2)
 
 print(res_boruta)
@@ -45,7 +45,7 @@ tr_type <- tr %>%
   select(-TTF)
 res_boruta <- Boruta(type ~ .,
                      data = tr_type,
-                     maxRuns = 200,
+                     maxRuns = 100,
                      doTrace=2)
 
 print(res_boruta)
@@ -70,7 +70,7 @@ tr_after <- tr %>%
 set.seed(111)
 res_boruta <- Boruta(TTF ~ .,
                      data = tr_after,
-                     maxRuns = 200,
+                     maxRuns = 100,
                      doTrace=2)
 
 print(res_boruta)
@@ -96,7 +96,7 @@ tr_normal <- tr %>%
 set.seed(111)
 res_boruta <- Boruta(TTF ~ .,
                      data = tr_normal,
-                     maxRuns = 200,
+                     maxRuns = 100,
                      doTrace=2)
 
 print(res_boruta)
@@ -126,7 +126,7 @@ tr_scaled <- tr %>%
 set.seed(111)
 res_boruta <- Boruta(scaled ~ .,
                      data = tr_scaled,
-                     maxRuns = 200,
+                     maxRuns = 100,
                      doTrace=2)
 
 print(res_boruta)
@@ -155,7 +155,7 @@ tr_scale <- tr %>%
 set.seed(111)
 res_boruta <- Boruta(scale ~ .,
                      data = tr_scale,
-                     maxRuns = 200,
+                     maxRuns = 100,
                      doTrace=2)
 
 print(res_boruta)
