@@ -1,0 +1,64 @@
+---
+title: "mini-failure EDA"
+author: "kur0cky"
+date: "5/18/2019"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(RcppRoll)
+library(ggforce)
+theme_set(theme_bw(base_family = "Osaka"))
+```
+
+```{r}
+tr_te <- read_csv("data/features/features.csv")
+folds <- read_csv("data/processed/folds.csv")
+tr <- tr_te %>% 
+  drop_na(TTF)
+```
+
+# mini failureとはなんなのか
+
+- おそらく、物理的なストレス強度の閾値の問題で、FailureになりきれなかったFailure
+- どのように判断するのか
+
+```{r}
+tr %>% 
+  ggplot(aes(acc_sd, TTF))+
+  geom_point()
+tr %>% 
+  ggplot(aes(acc_sd, TTF))+
+  geom_point()
+tr %>% 
+  mutate(index = 1:n()) %>% 
+  filter(acc_sd < 100) %>% 
+  mutate(sd_flg = acc_sd > 0) %>% 
+  arrange(acc_sd) %>% 
+  ggplot(aes(index, TTF))+
+  geom_point(aes(index, TTF, size = acc_AD_q.99))+
+  scale_colour_viridis_c()
+```
+
+```{r}
+tr %>% 
+  mutate(wave_index = folds$wave_index) %>% 
+  group_by(wave_index) %>% 
+  mutate(cum_sd = cumsum(acc_sd)) %>% 
+  ungroup() %>% 
+  ggplot(aes(TTF, cum_sd, group=wave_index))+
+  geom_line()
+
+tr %>% 
+  mutate(wave_index = folds$wave_index) %>% 
+  ggplot(aes(acc_sd, envelope_PC2, group=wave_index, colour=TTF))+
+  geom_point()
+```
+

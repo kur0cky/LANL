@@ -1,0 +1,37 @@
+---
+title: "plot"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r library}
+library(tidyverse)
+theme_set(theme_bw(base_family = "Osaka"))
+```
+
+```{r data_import}
+tr <- read_csv("data/features/features.csv") %>% 
+  drop_na(TTF)
+```
+
+```{r}
+features <- colnames(select(tr, -TTF))
+for(i in 1:length(features)){
+  df <- tr %>% 
+    select(TTF, features[i]) %>% 
+    mutate(index = 1:n())
+  colnames(df) <- c("TTF", "feature", "index")
+  p <- df %>% 
+    mutate(feature = percent_rank(feature) * 8 - 3) %>% 
+    ggplot(aes(index))+
+    geom_line(aes(y = TTF))+
+    geom_line(aes(y = feature), colour = "orange", alpha=.9, size = .5)+
+    labs(title = features[i])
+  print(p)
+}
+```

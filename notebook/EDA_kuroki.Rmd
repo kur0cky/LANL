@@ -1,0 +1,506 @@
+---
+title: "EDA1"
+author: "kur0cky"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_section: true
+    code_folding: hide
+    md_extensions: -ascii_identifiers
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      message = FALSE,
+                      warning = FALSE)
+```
+
+```{r packages}
+library(tidyverse)
+library(data.table)
+library(seewave)
+library(xgboost)
+library(Boruta)
+theme_set(theme_minimal(base_family = "Osaka"))
+tidyverse_logo()
+```
+
+# はじめに
+
+---
+
+本EDAでは、今まで考えていた特徴量と、その性質について考えています。
+主に以下の2点による見方を必ずしています
+
+- コルモゴロフ・スミルノフ検定をし、テストデータと分布関数が等しいかを確認
+- [Boruta](https://aotamasaki.hatenablog.com/entry/2019/01/05/195813)を利用し、Shadow-Featureに比べ有用な特徴かどうかを判断
+
+
+# 記述統計量 {.tabset .tabset-fade}
+
+---
+
+- 各種モーメント: 平均、標準偏差、歪度、尖度
+- **絶対偏差の**分位点: 1, 10, 25, 50, 75, 90, 99, 100%点
+
+分位点に関して絶対偏差を見ているのは、振動データであり負の振れと正の振れは同質であると考えたため。
+
+## ks検定
+
+コルモゴロフ・スミルノフ検定`ks.test(exact = T)`でtrain, testの分布が異なるか確認をする(有意水準5%)。なお、同率順位があるため`cannot compute exact p-value with ties`とwarningが出る。
+
+- 帰無仮説$H_0$: 二つの母集団の確率分布が等しい。
+- 棄却: 平均, 標準偏差, 1, 10, 25, 50, 75, 90, 99%点, 
+- 採択: 100%, 歪度, 尖度, 標準偏差
+
+- 分位点系が全て棄却されているのを考えると、記述統計を使うのはきぬいとさんのおっしゃる通り、shakedownが怖い。
+
+## Boruta
+
+帰無仮説：特徴量の重要度がshadow featureの重要度と同じ
+
+- 一応全ての特徴で帰無仮説を棄却(特徴が採用される)。
+- medianとskewはほぼ効いてないに等しそうです。
+
+```{r boruta_basicfeatures ,cache=TRUE}
+tr <- read_csv("data/processed/tr.csv")
+set.seed(1)
+res_boruta <- Boruta(x = select(tr, -target, -quake_index, -id),
+                     y = tr$target,
+                     pValue = 0.01,
+                     maxRuns = 200)
+
+res_boruta$ImpHistory %>% 
+  as_tibble() %>% 
+  gather(feature, importance) %>% 
+  ggplot(aes(reorder(feature, X = importance, FUN = mean), importance))+
+  geom_boxplot()+
+  coord_flip()+
+  labs(x = "feature")
+```
+
+
+# spectrum feature{.tabset .tabset-fade}
+
+---
+
+スペクトル(FFT)の基本的な特徴です。`seewave`パッケージの`specprop`で出てくるものをそのまま使用しています。
+
+- mean
+- sd
+- sem: meanの標準誤差
+- median
+- mode: 支配周波数
+- Q25: 
+- Q75: 
+- IQR: 四分位範囲
+- skewness
+- kurtosis
+- sfm: spectral flatness measure(スペクトル平坦性)
+- sh: スペクトルのシャノンエントロピー
+
+## ks検定
+
+- 帰無仮説$H_0$: 二つの母集団の確率分布が等しい
+- 棄却：median, Q25, Q75, IQR
+- 採択：mean, sem, sd, mode, skew, kurtosis, sfm, sh
+
+## boruta
+
+- mode以外の特徴は採用されました。
+- エントロピーやSEM, 平坦性は単純に面白いなと思います。
+- とはいえ、記述統計の分位点が出していたような重要度が出ていない。
+
+```{r boruta_basicspectrum ,cache=TRUE}
+tr <- read_csv("data/processed/tr.csv") %>% 
+  select(id, quake_index, target) %>% 
+  left_join(read_csv("data/features/tr_spec.csv"), by = "id")
+
+set.seed(1)
+res_boruta <- Boruta(x = select(tr, -target, -quake_index, -id),
+                     y = tr$target,
+                     pValue = 0.01,
+                     maxRuns = 200)
+
+res_boruta$ImpHistory %>% 
+  as_tibble() %>% 
+  gather(feature, importance) %>% 
+  ggplot(aes(reorder(feature, X = importance, FUN = mean), importance))+
+  geom_boxplot()+
+  coord_flip()+
+  labs(x = "feature")
+```
+
+
+# ARモデルを利用したスペクトル密度推定{.tabset .tabset-fade}
+
+---
+
+このへんからじわじわと個性を出していきます。
+ARモデルでfitした後、その当てはめ系列の密度推定を行うもので、Rでは`seewave::spec.ar()`で実装されています。
+
+デフォルトではAICに基づきARモデルの字数$p$が選択されるが、今回のデータではそのほとんどで$p = 51$が選択されているようです。
+これはシーケンスの長さによるものですが、次の例のように、少なめに抑えるのが良さそう？
+
+```{r}
+df_seq <- read_csv("data/train.csv",n_max = 150000)
+df_seq$acoustic_data %>% 
+  spec.ar() %>% 
+  plot()
+df_seq$acoustic_data %>% 
+  spec.ar(order = 10) %>% 
+  plot()
+```
+
+密度推定後の特徴抽出として、以下を行った。
+
+- 期待値
+- 最頻値
+
+## ks検定
+
+- 帰無仮説$H_0$: 二つの母集団の確率分布が等しい
+- 棄却：mode
+- 採択：mean
+
+
+## boruta
+
+- modeもmeanも採用
+- modeはほとんど効いていない
+
+
+```{r boruta_spec_ar ,cache=TRUE}
+tr <- read_csv("data/processed/tr.csv") %>% 
+  select(id, quake_index, target) %>% 
+  left_join(read_csv("data/features/tr_spec_ar.csv"), by = "id")
+
+set.seed(1)
+res_boruta <- Boruta(x = select(tr, -target, -quake_index, -id),
+                     y = tr$target,
+                     pValue = 0.01,
+                     maxRuns = 200)
+
+res_boruta$ImpHistory %>% 
+  as_tibble() %>% 
+  gather(feature, importance) %>% 
+  ggplot(aes(reorder(feature, X = importance, FUN = mean), importance))+
+  geom_boxplot()+
+  coord_flip()+
+  labs(x = "feature")
+```
+
+
+# スペクトル包絡{.tabset .tabset-fade}
+
+---
+
+AR使ったスペクトルが効いたので、滑らかなスペクトルに惹かれ始める。[スペクトル包絡](http://isw3.naist.jp/~shinnosuke-t/pdf/cepstrum_lpc.pdf)を考える
+
+- 系列 -> FFT -> スペクトル
+- スペクトル -> FFT -> ケプストラム
+- ケプストラム -> ローパスフィルタ -> 逆FFT -> スペクトル包絡
+
+下図の青線がスペクトル包絡。黒線は対数パワースペクトル
+
+```{r envelope, cache=TRUE}
+seq <- df_seq$acoustic_data
+n <- length(seq)
+df <- tibble(spec = log(Mod(fft(seq)))) %>% 
+  mutate(ceps = fft(spec),
+         index = 1:n())
+df$ceps[15:(150000-14)]<-0 
+df <- df %>% 
+  mutate(envelope = Re(fft(ceps, inverse=T)/n()))
+df %>% 
+  ggplot(aes(index, spec))+
+  geom_line()+
+  geom_line(aes(index, envelope), colour = "blue", size=1.5)
+```
+
+次に、全てのsegment(150000ごと)に対するスペクトル包絡を算出した。
+ttfとの関連性がみたいので、ttfを整数値に丸めた値ごとに作図を行った。
+
+```{r envelope_plot, cache=T}
+envelope <- read_csv("data/processed/envelope.csv") %>% 
+  drop_na()
+envelope %>% 
+  left_join(select(read_csv("data/processed/tr.csv"), id, target),
+            by = "id") %>% 
+  gather(lag, envelope, -id, -target) %>% 
+  mutate(lag = as.integer(str_remove(lag, "envelope_"))) %>% 
+  mutate(bin_target = round(target, 0)) %>% 
+  ggplot(aes(lag, envelope, group = id))+
+  geom_line(size = .1)+
+  facet_wrap(~bin_target)
+```
+
+# スペクトル包絡PCA{.tabset .tabset-fade}
+
+---
+
+形が似ているためDTWによる非類似度が考えられるが、まずは単純にEuclideanで低次元に埋め込む。昨日まで距離行列を出してMDS(多次元尺度構成)をしていたが、EuclideanではPCAをすることと同値であるためPCAで十分。
+
+Plan! Check! Act! (Doしない)
+
+- PC3程度までで十分か
+
+```{r PCA_envelope_importance}
+summary(prcomp(envelope[,-1]))$importance[1,] %>% 
+  barplot(main = "envelope_PCA_importance")
+```
+
+## ks検定
+
+- 全ての特徴が採用された
+
+## boruta
+
+- 全ての特徴が採用された
+- PC1, 2のみで十分か
+
+```{r boruta_pc_envelope ,cache=TRUE}
+tr <- read_csv("data/processed/tr.csv") %>% 
+  select(id, quake_index, target) %>% 
+  left_join(read_csv("data/features/pc_envelope.csv"), by = "id") %>% 
+  drop_na()
+
+set.seed(1)
+res_boruta <- Boruta(x = select(tr, -target, -quake_index, -id),
+                     y = tr$target,
+                     pValue = 0.01,
+                     maxRuns = 200)
+
+res_boruta$ImpHistory %>% 
+  as_tibble() %>% 
+  gather(feature, importance) %>% 
+  ggplot(aes(reorder(feature, X = importance, FUN = mean), importance))+
+  geom_boxplot()+
+  coord_flip()+
+  labs(x = "feature")
+```
+
+
+
+# 自己相関
+
+---
+
+どうやら自己相関になんらかの構造があるかもしれないので、全てのsegment(150000ごとの区切り)に対して自己相関を算出してみる。
+また、ttfとの関連性がみたいので、ttfを整数値に丸めた値ごとに作図を行った。
+
+- 12秒以降は標本が少ないことによるかもしれないが、地震間近のデータでは自己相関が不安定であるように見える
+- また、自己相関関数(ACF)の図より、ほぼ全てのsegmentに明らかな周期がありそうなことが確認できる。
+- **Seasonnalを考慮した特徴流出が可能？**
+- 一部のsegmentでは、周期的な自己相関が崩れている。なぜ？？
+
+```{r acf_pacf_plot, cache=T}
+acf <- read_csv("data/processed/acf.csv") 
+acf %>% 
+  left_join(select(read_csv("data/processed/tr.csv"), id, target),
+            by = "id") %>% 
+  gather(lag, acf, -id, -target) %>% 
+  mutate(lag = as.integer(str_remove(lag, "acf_"))) %>% 
+  mutate(bin_target = round(target, 0)) %>% 
+  ggplot(aes(lag, acf, group = id))+
+  geom_line(size = .1)+
+  facet_wrap(~bin_target)
+
+pacf <- read_csv("data/processed/pacf.csv") 
+pacf %>% 
+  left_join(select(read_csv("data/processed/tr.csv"), id, target),
+            by = "id") %>% 
+  gather(lag, pacf, -id, -target) %>% 
+  mutate(lag = as.integer(str_remove(lag, "pacf_"))) %>% 
+  mutate(bin_target = round(target, 0)) %>% 
+  ggplot(aes(lag, pacf, group = id))+
+  geom_line(size = .1)+
+  facet_wrap(~bin_target)
+```
+
+# 自己相関PCA{.tabset .tabset-fade}
+
+---
+
+ACFの形が似ているためDTWによる非類似度が考えられるが、まずは単純にEuclideanで低次元に埋め込む。昨日まで距離行列を出してMDS(多次元尺度構成)をしていたが、EuclideanではPCAをすることと同値であるためPCAで十分。
+
+Plan! Check! Act! (Doしない)
+
+- acfではPC6程度で十分か
+- pacfではPC4程度で十分か
+
+```{r PCA_acf_importance}
+summary(prcomp(acf[,-1]))$importance[1,] %>% 
+  barplot(main = "acf_PCA_importance")
+summary(prcomp(pacf[,-1]))$importance[1,] %>%
+  barplot(main = "pacf_PCA_importance")
+```
+
+## ks検定
+
+- 全ての特徴が採用された
+
+## boruta
+
+- 全ての特徴が採用された
+- acfもpacfも主成分順に効いている。
+
+```{r boruta_pc_acf_pacf ,cache=TRUE}
+tr <- read_csv("data/processed/tr.csv") %>% 
+  select(id, quake_index, target) %>% 
+  left_join(read_csv("data/features/pc_acf.csv"), by = "id") %>% 
+  left_join(read_csv("data/features/pc_pacf.csv"), by = "id") %>% 
+  drop_na()
+
+set.seed(1)
+res_boruta <- Boruta(x = select(tr, -target, -quake_index, -id),
+                     y = tr$target,
+                     pValue = 0.01,
+                     maxRuns = 200)
+
+res_boruta$ImpHistory %>% 
+  as_tibble() %>% 
+  gather(feature, importance) %>% 
+  ggplot(aes(reorder(feature, X = importance, FUN = mean), importance))+
+  geom_boxplot()+
+  coord_flip()+
+  labs(x = "feature")
+```
+
+
+
+# GARCH(1,1)モデルによる特徴量{.tabset .tabset-fade}
+
+---
+
+大きな変動が集中的に起こる現象(ボラティリティ・クラスタリング)など、分散の時間変化をモデリングする手法として[GARCHモデル](http://user.keio.ac.jp/~nagakura/zemi/ts9_slide_2015.pdf)が知られている。
+ここでは単純にGARCH(1, 1)モデルを当てはめ、特徴量抽出を行った。
+
+モチベーションは、横目でチラチラ見ていたカーネルで人気だったrolling_sdをもっと本質的に追えるのではと思ったこと。
+
+- 各回帰係数
+- fitted valueのmean, sd, 5%点, 95%点
+- 残差のmean, sd, 5%点, 95%点
+
+```{r garch, cache=TRUE, eval=FALSE}
+fit_garch <- tseries::garch(df_seq$acoustic_data,
+                            trace = FALSE,order = c(1,1))
+fit_garch %>% plot
+```
+
+## ks検定
+
+- 残差の5%点 以外採択された
+
+## boruta
+
+```{r boruta_garch ,cache=TRUE}
+tr <- read_csv("data/processed/tr.csv") %>% 
+  select(id, quake_index, target) %>% 
+  left_join(read_csv("data/features/tr_garch.csv"), by = "id") %>% 
+  drop_na()
+
+set.seed(1)
+res_boruta <- Boruta(x = select(tr, -target, -quake_index, -id),
+                     y = tr$target,
+                     pValue = 0.01,
+                     maxRuns = 200)
+
+res_boruta$ImpHistory %>% 
+  as_tibble() %>% 
+  gather(feature, importance) %>% 
+  ggplot(aes(reorder(feature, X = importance, FUN = mean), importance))+
+  geom_boxplot()+
+  coord_flip()+
+  labs(x = "feature")
+```
+
+
+
+# 巷で噂のrolling_sd{.tabset .tabset-fade}
+
+多くのカーネルで大きな重要度を持っているrolling_sdについて、手元でも算出してみました。
+具体的にここでは、窓長1000のローリングを考え、sdの分位点(5,10,...,95%)を算出しました
+
+---
+
+## ks検定
+
+- 帰無仮説$H_0$: 二つの母集団の確率分布が等しい
+- 棄却：5 ~ 80%点
+- 採択：85, 90, 95%点
+
+
+## boruta
+
+- 巷で噂になる通り、どのrolling_sdも効いている
+- q95よりもq05のほうが重要度が高いのが印象的です。(とはいえヒゲの範囲内)
+
+
+```{r boruta_rolling_sd ,cache=TRUE}
+tr <- read_csv("data/processed/tr.csv") %>% 
+  select(id, quake_index, target) %>% 
+  left_join(read_csv("data/features/tr_roll_sd.csv"), by = "id") %>% 
+  drop_na()
+
+set.seed(1)
+res_boruta <- Boruta(x = select(tr, -target, -quake_index, -id),
+                     y = tr$target,
+                     pValue = 0.01,
+                     maxRuns = 200)
+
+res_boruta$ImpHistory %>% 
+  as_tibble() %>% 
+  gather(feature, importance) %>% 
+  ggplot(aes(reorder(feature, X = importance, FUN = mean), importance))+
+  geom_boxplot()+
+  coord_flip()+
+  labs(x = "feature")
+```
+
+# 実験
+
+---
+
+今までの特徴のなかで、それぞれのうち最も効きそうだったものを集めて、xgboostで重要度を算出してみる。
+
+
+```{r xgboost_experiments, cache=T}
+tr <- read_csv("data/features/features.csv") %>% 
+  drop_na() %>% 
+  select(target, sd.x, sem, spec_ar_mean, envelope_PC1, acf_PC1, pacf_PC1, sd_garch_res, roll_1000_sd_p95)
+dtrain <- xgb.DMatrix(data = as.matrix(select(tr, -target)),label = tr$target)
+param <- list(max_depth = 6,
+              min_child_weight = 1,
+              colsample_bytree = 0.9,
+              subsample = 0.9,
+              eta = .05,
+              silent = 1, 
+              booster = "gbtree",
+              objective = "reg:gamma",
+              eval_metric = "mae",
+              nthread = 1)
+set.seed(1)
+cv <- xgb.cv(params = param, dtrain, nrounds = 10000, nfold = 10,
+             early_stopping_rounds = 50,
+             stratified = T,
+             verbose = 0)
+fit_xgb <- xgb.train(params = param, dtrain, nrounds = cv$best_iteration)
+print(cv)
+xgb.importance(colnames(dtrain), fit_xgb) %>% 
+  as_tibble %>% 
+  ggplot(aes(Feature, Gain))+
+  geom_bar(stat = "identity")+
+  coord_flip()
+```
+
+
+なお、各特徴の相関は次のようになった
+```{r features_cor}
+library(DT)
+datatable(round(cor(tr), 1))
+```
+

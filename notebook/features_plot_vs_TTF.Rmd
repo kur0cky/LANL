@@ -1,0 +1,40 @@
+---
+title: "features_plots_vs_TTF"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r library}
+library(tidyverse)
+theme_set(theme_bw(base_family = "Osaka"))
+```
+
+```{r data_import}
+tr <- read_csv("data/features/features.csv") %>% 
+  drop_na(TTF)
+```
+
+```{r}
+features <- colnames(select(tr, -TTF))
+for(i in (1:length(features))[-2]){
+  df <- tr %>% 
+    select(TTF, features[i], sd = acc_sd) %>% 
+    mutate(index = 1:n())
+  colnames(df) <- c("TTF", "feature", "sd", "index")
+  p <- df %>% 
+    mutate(feature = percent_rank(feature) * 8 - 3) %>% 
+    mutate(type = case_when(sd > 100 ~ "pulse",
+                            TTF < 0.3 ~ "after",
+                            TRUE ~ "normal")) %>% 
+    ggplot(aes(feature, TTF, colour=type))+
+    geom_point(alpha=.8)+
+    scale_colour_viridis_d()+
+    labs(title = features[i])
+  print(p)
+}
+```

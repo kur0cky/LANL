@@ -1,0 +1,10 @@
+/data
+*_file
+*_cache
+*.html
+.Rproj.user
+*.png
+*.RData
+*.rdx
+*.rdb
+*.csv

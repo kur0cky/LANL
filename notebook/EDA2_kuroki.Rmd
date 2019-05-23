@@ -1,0 +1,179 @@
+---
+title: "EDA1"
+author: "kur0cky"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_section: true
+    code_folding: hide
+    md_extensions: -ascii_identifiers
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      message = FALSE,
+                      warning = FALSE)
+```
+
+```{r packages}
+library(tidyverse)
+library(ggrepel)
+library(tidymodels)
+library(data.table)
+library(ranger)
+theme_set(theme_minimal(base_family = "Osaka"))
+```
+
+# はじめに
+
+- 0.3 pulse
+- after pulse
+
+
+# pulseとは
+
+約0.3秒に必ず大きな変動がある。ここでは、その性質を改めて明らかにする。  
+
+スタート：「パルスとは、地震0.3秒前あたりのでかい振動」
+
+## 結論
+
+**パルスはほぼ確実に抜けるので、パルスと判断されたものは0.316程度と予測するが良い**
+
+## やったこと
+
+**pulseの位置(その時のTTF)を厳密に把握したい**
+
+  - [discussion](https://www.kaggle.com/c/LANL-Earthquake-Prediction/discussion/77390)を参考に各地震の箇所を把握(正しい？)
+  - 少し余裕をもたせて、各地震から前140万行(0.363秒程度)を取る
+  - 絶対偏差2000超え(2000は目測でなんとなく)の振動を抽出
+  - TTFを確認
+
+```{r 0.3pulse, cache=T}
+quakebreaks <- c(5656573,50085877,104677355,138772452,
+                 187641819,218652629,245829584,307838916,
+                 338276286,375377847,419368879,461811622,
+                 495800224,528777114,585568143,621985672)
+pulse <- list()
+for(i in 1:16){
+  seq <- fread("data/train.csv",
+               nrows = 1400000,
+               skip = quakebreaks[i] - 1400000,
+               col.names = c("acoustic_data", "time_to_failure"))
+  pulse[[i]] <- seq %>%
+    filter(abs(acoustic_data) > 2000)
+  # print(pulse)
+  cat(i, "番目の地震から140万行前の TTF:", unlist(seq[1,2,]), "\n")
+}
+```
+
+- 絶対偏差が2000を超えたのは約2113行
+- その全てのTTFが0.31 ~ 0.33にまとまっている
+- 98%が0.311 ~ 0.321にまとまっている
+
+- 訓練データにおいては、いずれの地震にもパルスが現れている
+- 地震ごとにほぼ一箇所に固まっている。
+- 6個目の地震に関しては0.01秒離れたpulseがある
+
+
+```{r pulse_summary}
+pulse_df <- tibble(quake_index = 1:16) %>% 
+  mutate(pulse = pulse) %>% 
+  unnest()
+pulse_df %>% 
+  ggplot(aes(time_to_failure))+
+  geom_histogram(bins = 10)+
+  labs(title = "絶対偏差2000以上のTTF分布")
+
+tibble(quake_index = 1:16) %>% 
+  mutate(pulse = pulse) %>% 
+  unnest() %>% 
+  ggplot(aes(time_to_failure, acoustic_data))+
+  geom_point(aes(colour = factor(quake_index)))+
+  scale_colour_viridis_d()+
+  labs(title = "絶対偏差2000以上のTTF分布(散布図・地震ごと色分け)")
+
+tibble(quake_index = 1:16) %>% 
+  mutate(pulse = pulse) %>% 
+  unnest() %>% 
+  ggplot(aes(time_to_failure))+
+  geom_histogram(aes(fill = factor(quake_index)),bins = 10)+
+  facet_wrap(~quake_index, ncol = 3)+
+  scale_fill_viridis_d()+
+  labs(title = "絶対偏差2000以上のTTF分布(ヒストグラム・地震ごと色分け)")
+```
+
+
+## 考察・懸念点segmentによるずれ
+
+- testデータのsegmentは150000行であった
+- データのサンプルが400MHz(実際は飛び飛びになってたりする)であるとすると、各segmentは0.0375秒(実際は0.0383秒)
+- pulseの分布は0.31 ~ 0.33程度であった(中央値0.3168)
+- つまり、segmentのとり方によっては0.278 ~ 0.355程度にTTFはバラける
+- TTFベースでpulseを定義してしまうと、**pulse以外が混ざる場合**・**pulseを逃してしまう場合**がある。
+
+パルス時点より少し広めにとり、この懸念が訓練データでどうなっているかを確認する
+
+- KKKPのsegmentの切り方では、若干かぶっている箇所がある(0．28秒付近)
+- そうでない切り分けもあり得る(ちょうどパルス途中でsegmentが区切られている場合など)
+
+**pulseはTTFベースではなく、TTFと変動でタグ付けする必要がある。**
+
+```{r TTF_q99}
+tr <- read_csv("data/features/basic_features.csv") %>% 
+  drop_na(TTF)
+# TTFが
+tr %>% 
+  filter(TTF > 0.27 & TTF < 0.36) %>% 
+  arrange(acc_AD_q.99) %>% 
+  ggplot(aes(TTF, acc_AD_q.99))+
+  geom_point()+
+  labs(title = "パルスがパルス前後とハッキリ分けられるかどうかの確認",
+       y = "abs quantile99%")
+```
+
+99％点だけでなく、標準偏差も考えてみる。次図の散布図は、横軸がsdで縦軸が99%点です。labelはTTFになっていて、0.3秒パルスが抜けていることが分かる。
+
+- どうやら、sdのみでハッキリ分けられそうだ。
+- sd * q99 の交互作用も効きそうだ。
+- q99だけだと怪しい。
+
+```{r pulse}
+tr %>% 
+  ggplot(aes(acc_sd, acc_AD_q.99))+
+  geom_point(alpha = .3)+
+  geom_text(aes(label = round(TTF, 2)))
+```
+
+
+## 線形判別によるpulse判別
+
+- 上記の懸念点は、パルスを正確に判別できさえすれば問題ない
+- ロジスティック回帰をすると線形分離可能な場合に怖い
+- フィッシャーの基準で線形判別するのが単純でよいと考えた
+- sdとabs(q99)の交互作用だけでも全て分けられた
+- もう少しインバランスに対処したほうがいいかも？
+
+```{r pulse_lda}
+tr <-tr %>% 
+  mutate(pulse_flg = case_when(acc_sd > 100 ~ "pulse",
+                               TRUE ~ "not_pulse") %>% 
+           factor) 
+# LOO-CV
+tr %>% 
+  select(pulse_flg, acc_sd, acc_AD_q.99) %>% 
+  mutate_if(is.numeric, scale) %>% 
+  MASS::lda(pulse_flg ~ acc_sd + acc_AD_q.99 + acc_sd*acc_AD_q.99, 
+            data = ., CV=T) %>% 
+  .$class %>% 
+  table(., tr$pulse_flg)
+```
+
+パルス or notを判別超平面の法線に射影したものが以下
+
+```{r purse_lda plot}
+plot(MASS::lda(pulse_flg ~ acc_sd + acc_AD_q.99 + acc_sd*acc_AD_q.99, data = tr))
+```
