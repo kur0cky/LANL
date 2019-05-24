@@ -27,6 +27,10 @@ BSPACF_mean_PC <- read_csv("data/features/BSPACF_mean_PC.csv")
 BSPACF_sd_PC <- read_csv("data/features/BSPACF_sd_PC.csv")
 BSPACF_ci_PC <- read_csv("data/features/BSPACF_ci_PC.csv")
 
+BSenv_mean_PC <- read_csv("data/features/BSenv_mean_PC.csv")
+BSenv_sd_PC <- read_csv("data/features/BSenv_sd_PC.csv")
+BSenv_ci_PC <- read_csv("data/features/BSenv_ci_PC.csv")
+
 BSgarch_mean <- read_csv("data/features/BS_garch_mean.csv")
 BSgarch_sd <- read_csv("data/features/BS_garch_sd.csv")
 BSgarch_ci <- read_csv("data/features/BS_garch_ci.csv")
@@ -53,6 +57,7 @@ df <- basic_features %>%
   bind_cols(pc_envelope) %>%
   bind_cols(roll_mean) %>%
   bind_cols(BSPACF_mean_PC, BSPACF_sd_PC, BSPACF_ci_PC) %>% 
+  bind_cols(BSenv_mean_PC, BSenv_sd_PC, BSenv_ci_PC) %>% 
   bind_cols(BSACF_mean_PC, BSACF_sd_PC, BSACF_ci_PC) %>%
   bind_cols(BSgarch_mean, BSgarch_sd, BSgarch_ci) %>% 
   bind_cols(landscape) %>% 
