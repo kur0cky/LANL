@@ -6,13 +6,13 @@ library(xgboost)
 library(ggforce)
 
 # data preparing----
-features_all <- read_rds("data/features/features_xgb_all.rds")
-features_type <- read_rds("data/features/features_xgb_type.RDS")
-features_type <- read_rds("data/features/features_xgb_type.RDS")
-features_after <- read_rds("data/features/features_xgb_after.RDS")
-features_normal <- read_rds("data/features/features_xgb_normal.RDS")
-features_scaled <- read_rds("data/features/features_xgb_scaled.RDS")
-features_scale <- read_rds("data/features/features_xgb_scale.RDS")
+features_all <- read_rds("data/features/features_boruta_all.rds")
+features_type <- read_rds("data/features/features_boruta_type.RDS")
+features_type <- read_rds("data/features/features_boruta_type.RDS")
+features_after <- read_rds("data/features/features_boruta_after.RDS")
+features_normal <- read_rds("data/features/features_boruta_normal.RDS")
+features_scaled <- read_rds("data/features/features_boruta_scaled.RDS")
+features_scale <- read_rds("data/features/features_boruta_scale.RDS")
 folds <- read_csv("data/processed/folds.csv")
 sample <- read_csv("data/sample_submission.csv")
 
@@ -502,3 +502,5 @@ pred %>%
             rank = min_rank(pred)) %>% 
   ggplot(aes(rank, pred))+
   geom_point()
+
+

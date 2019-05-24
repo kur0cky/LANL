@@ -2,9 +2,12 @@
 library(Boruta)
 library(tidyverse)
 features_kstest <- read_rds("data/features/features_kstest.rds")
+folds <- read_csv("data/processed/folds.csv")
 tr <- read_csv("data/features/features.csv") %>% 
   drop_na() %>% 
   select(TTF, features_kstest)
+# %>% 
+#   select(TTF, starts_with("BSPACF"), acc_sd)
   # filter(quake_index != 1) %>% 
   # group_by(quake_index) %>% 
   # mutate(scale = max(target),
