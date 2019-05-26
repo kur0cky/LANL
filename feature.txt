@@ -1,0 +1,17 @@
+BSenv_mean_PC1
+BSenv_mean_PC2
+BSenv_mean_PC3
+BSenv_mean_PC4
+BSgarch_mean_b1
+BSgarch_mean_a1
+BSACF_mean_PC1
+BSACF_mean_PC2
+BSACF_mean_PC3
+BSPACF_mean_PC1
+BSPACF_mean_PC4
+BSPACF_mean_PC2
+land_mean_PC2
+roll_sd_PC1
+roll_sd_PC2
+roll_sd_PC3
+roll_sd_PC10

@@ -13,6 +13,7 @@ features_after <- read_rds("data/features/features_boruta_after.RDS")
 features_normal <- read_rds("data/features/features_boruta_normal.RDS")
 features_scaled <- read_rds("data/features/features_boruta_scaled.RDS")
 features_scale <- read_rds("data/features/features_boruta_scale.RDS")
+feature <- scan("feature.txt", what="")
 folds <- read_csv("data/processed/folds.csv")
 sample <- read_csv("data/sample_submission.csv")
 
