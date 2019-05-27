@@ -1,0 +1,143 @@
+---
+title: "predict after pulse"
+author: "kur0cky"
+date: "2019/5/27"
+output: 
+  html_document: 
+    toc: True
+    toc_float: True
+    number_sections: True
+    toc_depth: 2
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      warning = FALSE,
+                      message = FALSE,
+                      cache = TRUE)
+```
+
+```{r library}
+library(tidyverse)
+library(glmnet)
+library(xgboost)
+```
+
+```{r setting, cache=FALSE}
+theme_set(theme_minimal(base_family = "Osaka"))
+```
+
+```{r data_import}
+folds <- read_csv("data/processed/folds.csv")
+tr <- read_csv("data/features/features.csv") %>% 
+  drop_na(TTF) %>% 
+  bind_cols(folds)
+features <- scan("feature.txt", what = "")
+```
+
+
+# はじめに
+
+### 何の notebook?
+
+このノートブックでは、私がやっていたafter pulse判別モデルを解説しています。
+
+### 現状どのようなafter pulse判別を行っているか
+
+- xgboostによる二値判別(LGBはパラメータのお気持ち理解不足なので。。。)
+- 特徴量18個
+- augmentationやover sample, under sampleは行っていない。
+
+### 結果は？
+
+loglossを達成
+
+# 学習
+
+```{r provide_train_dataset}
+folds <- tr %>% 
+  filter(acc_sd < 100) %>% 
+  transmute(id,
+            fold_index,
+            flg = T) %>% 
+  spread(fold_index, flg, fill = FALSE) %>% 
+  select(-id) %>% 
+  lapply(which)
+
+label = tr %>% 
+  filter(acc_sd < 100) %>% 
+  transmute(type = if_else(TTF < 0.3, 1L, 0L)) %>% 
+  .$type
+mat <- tr %>% 
+  filter(acc_sd < 100) %>% 
+  select(features) %>% 
+  as.matrix() 
+dtrain <- mat%>% 
+  xgb.DMatrix(label = label)
+```
+
+```{r fitting_xgb}
+param <- list(max_depth = 5,
+              min_child_weight = 3,
+              colsample_bytree = 0.7,
+              subsample = 0.9,
+              eta = .03,
+              booster = "gbtree",
+              objective = "binary:logistic",
+              eval_metric = "logloss",
+              nthread = 1)
+set.seed(1)
+cv_type <- xgb.cv(params = param, dtrain, nrounds = 10000,
+                  early_stopping_rounds = 50,
+                  verbose = 0,
+                  folds = folds,
+                  prediction = TRUE)
+set.seed(1)
+fit_type <- xgb.train(params = param, dtrain, nrounds = cv_type$best_iteration)
+impo <- xgb.importance(colnames(dtrain), fit_type)
+pred_type <- cv_type$pred
+fit_glm_type <- glm(label ~ pred_type,
+                    family = binomial)
+```
+
+```{r, }
+tr %>%
+  filter(acc_sd < 100) %>% 
+  transmute(TTF,
+            label = label,
+            pred_xgb = cv_type$pred,
+            pred_glm = fit_glm_type$fitted.values) %>% 
+  gather(model, pred, -TTF, -label) %>% 
+  ggplot(aes(label, pred, colour = TTF))+
+  geom_point(position = "jitter")+
+  facet_wrap(~model)+
+  theme_linedraw()+
+  scale_colour_viridis_c()
+```
+
+
+```{r plot_importance}
+impo %>% 
+  ggplot(aes(reorder(Feature, Gain), Gain))+
+  geom_bar(stat = "identity")+
+  coord_flip()
+
+tr %>%
+  ggplot(aes(type, pred_type, colour = TTF))+
+  geom_point(position = "jitter")+
+  scale_colour_viridis_c()
+```
+
+```{r glmnet}
+foldid = tr %>% 
+  filter(acc_sd < 100) %>% 
+  .$fold_index
+cv_glmnet <- cv.glmnet(y = as.factor(label), 
+                       x = mat,
+                       family = "binomial",
+                       alpha = 1, foldid = foldid,
+                       type.measure = "mae")
+```
+

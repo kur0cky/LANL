@@ -10,7 +10,7 @@ for(i in 1:21){
     df_seg <- df[1:150000 + (j-1)*150000,]
     roll_sd[[(i-1)*200 + j]] <- roll_sd(df_seg$acoustic_data,
                                         n = 10L) %>% 
-      quantile( c(0.05, 0.95) )
+      quantile( c(1:19 * 0.05) )
   }
   print(i);gc()
 }
@@ -28,7 +28,7 @@ for(i in 1:length(list.files("data/test"))){
   df_seg <- read_csv(str_c("data/test/", paths[i]), col_types = "d")
   roll_sd[[i]] <- roll_sd(df_seg$acoustic_data,
                           n = 10L) %>% 
-    quantile( c(0.05, 0.95) )
+    quantile( c(1:19 * 0.05) )
   if(i %% 10 == 0)print(i)
 }
 te_roll_10_sd <- do.call("rbind", roll_sd) %>% 
