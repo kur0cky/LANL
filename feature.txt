@@ -17,3 +17,4 @@ roll_sd_PC3
 roll_sd_PC10
 roll_10_sd_5
 roll_10_sd_95
+num_peak_10_mean

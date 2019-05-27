@@ -10,6 +10,7 @@ arma_features <- read_csv("data/features/arma_features.csv")
 garch_features <- read_csv("data/features/garch_features.csv")
 envelope_res <- read_csv("data/features/envelope_res.csv")
 roll_sd_10 <- read_csv("data/features/roll_sd_10.csv")
+num_peak <- read_csv("data/features/num_peak_10_mean.csv")
 
 pc_acf <- read_csv("data/features/pc_acf.csv")
 pc_pacf <- read_csv("data/features/pc_pacf.csv")
@@ -44,6 +45,7 @@ pc_land_q50 <- read_csv("data/features/pc_land_q50.csv")
 
 
 df <- basic_features %>%
+  bind_cols(num_peak) %>% 
   bind_cols(roll_sd_10) %>% 
   bind_cols(hilbert_basics) %>%
   bind_cols(spec_basics) %>%
