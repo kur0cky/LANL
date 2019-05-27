@@ -130,14 +130,3 @@ tr %>%
   scale_colour_viridis_c()
 ```
 
-```{r glmnet}
-foldid = tr %>% 
-  filter(acc_sd < 100) %>% 
-  .$fold_index
-cv_glmnet <- cv.glmnet(y = as.factor(label), 
-                       x = mat,
-                       family = "binomial",
-                       alpha = 1, foldid = foldid,
-                       type.measure = "mae")
-```
-
