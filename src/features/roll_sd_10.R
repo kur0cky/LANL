@@ -37,4 +37,8 @@ colnames(te_roll_10_sd) <- str_c("roll_10_sd_", colnames(te_roll_10_sd)) %>%
   str_remove("%")
 
 bind_rows(tr_roll_10_sd, te_roll_10_sd) %>% 
+  prcomp() %>% 
+  .$x %>% 
+  .[,1] %>% 
+  tibble(roll_10_sd_PC1 = .) %>% 
   write_csv("data/features/roll_sd_10.csv")
