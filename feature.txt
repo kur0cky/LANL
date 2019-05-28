@@ -17,3 +17,5 @@ roll_sd_PC3
 roll_sd_PC10
 num_peak_10_mean
 roll_10_sd_PC1
+acc_AD_q.25
+envelope_PC6

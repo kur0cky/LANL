@@ -2,9 +2,7 @@
 
 # new----
 
-tr_te <- read_csv("data/features/features.csv") %>% 
-  mutate(roll_10_sd_5 = log(roll_10_sd_5),
-         roll_10_sd_95 = log(roll_10_sd_95))
+tr_te <- read_csv("data/features/features.csv") 
 
 tr <- tr_te %>% 
   drop_na() %>% 

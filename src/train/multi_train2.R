@@ -416,7 +416,7 @@ res <- res %>%
 
 res <- res %>% 
   mutate(pred_scaling = pred_scale * pred_scaled,
-         pred_normal = (pred_scaling + pred_N + pred_all)/3,
+         pred_normal = (pred_N + pred_all)/2,
          pred_prob = pred_A*pred_type + pred_normal*(1-pred_type),
          # pred = (pred_prob*1 + pred_all*1)/2,
          # pred = pred_all,
@@ -486,17 +486,17 @@ pred <- te %>%
          pred_N = predict(fit_N, dtest_normal),
          pred_A = predict(fit_A, dtest_after)) %>% 
   mutate(pred_scaling = pred_scale * pred_scaled,
-         pred_normal = (pred_scaling + pred_N + pred_all)/3,
+         pred_normal = (pred_N + pred_all)/2,
          pred_prob = pred_A*pred_typeb + pred_normal*(1-pred_typeb),
          # pred = (pred_prob + pred_all)/2,
          pred = pred_prob,
-         # pred = pred_all,,
+         # pred = pred_all,
          pred = if_else(pred_typeb > .5, pred_A, pred),
          pred = if_else(acc_sd > 100, 0.316, pred)) 
 sample %>% 
   left_join(pred, by = "seg_id") %>% 
   transmute(seg_id, time_to_failure = pred) %>% 
-  write_csv("data/submit/cv1_979.csv")
+  write_csv("data/submit/cv1_967.csv")
 
 pred %>% 
   transmute(seg_id,
