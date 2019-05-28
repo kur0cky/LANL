@@ -11,7 +11,7 @@ BSPACF_mean <- lapply(BSPACF, function(x) apply(x, 2, mean)) %>%
 BSPACF_mean_PC <- BSPACF_mean %>% 
   prcomp() %>% 
   .$x %>%
-  .[,1:4] %>% 
+  .[,1:6] %>% 
   as_tibble()
 colnames(BSPACF_mean_PC) <- str_c("BSPACF_mean_", colnames(BSPACF_mean_PC))
 

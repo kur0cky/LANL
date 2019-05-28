@@ -8,6 +8,8 @@ output:
     toc_float: True
     number_sections: True
     toc_depth: 2
+    code_folding: hide
+    md_extensions: -ascii_identifiers
 editor_options: 
   chunk_output_type: console
 ---
@@ -19,7 +21,7 @@ knitr::opts_chunk$set(echo = TRUE,
                       cache = TRUE)
 ```
 
-```{r library}
+```{r library, cache=FALSE}
 library(tidyverse)
 library(glmnet)
 library(xgboost)
@@ -47,12 +49,30 @@ features <- scan("feature.txt", what = "")
 ### 現状どのようなafter pulse判別を行っているか
 
 - xgboostによる二値判別(LGBはパラメータのお気持ち理解不足なので。。。)
-- 特徴量18個
+- xgbによるoof predictをロジスティック回帰でなめらか(？)に
+- 特徴量14個
 - augmentationやover sample, under sampleは行っていない。
 
 ### 結果は？
 
-loglossを達成
+logloss 0.0348 を達成。そこそこ良いのでは？
+
+# 特徴量説明
+
+- ブートストラップ・スペクトル包絡に基づく特徴
+  - スペクトル包絡 -> 第1 ~ 第4主成分(ユークリッド距離)
+- ブートストラップ・GARCHモデルに基づく特徴
+  - GARCH(1, 1)モデルの係数$a1, b1$のブートストラップ平均
+- ブートストラップ自己相関に基づく特徴
+  - lag30までの自己相関 -> 第1 ~ 第3主成分
+- ブートストラップ・偏自己相関に基づく特徴
+  - lag30までの自己相関 -> 第2, 4主成分
+- TDAに基づく特徴
+  - ブートストラップlandscape -> 第2主成分
+- rolling sd に基づく特徴
+  - 窓長10のrolling sd分位点($q=.5,.10,\dots,.95$) -> 第1主成分
+- ブートストラップ 平均peak数
+  - 絶対偏差 -> num_peak (前後の比較は5ずつ)
 
 # 学習
 
@@ -72,7 +92,9 @@ label = tr %>%
   .$type
 mat <- tr %>% 
   filter(acc_sd < 100) %>% 
-  select(features) %>% 
+  select(features, 
+         -BSPACF_mean_PC1, -roll_sd_PC1, -roll_sd_PC2,
+         -roll_sd_PC10, -roll_sd_PC3) %>% 
   as.matrix() 
 dtrain <- mat%>% 
   xgb.DMatrix(label = label)
@@ -102,7 +124,16 @@ fit_glm_type <- glm(label ~ pred_type,
                     family = binomial)
 ```
 
-```{r, }
+# 結果
+
+### 予測after確率(oof)と真値
+
+xgbによる予測と、さらにそれをロジスティック回帰で平滑化(？)した確率をプロット
+
+- ロジスティック回帰にかけたものの方がハッキリと0, 1に寄っている。
+- 順序が変わるわけではないので、ハード代入なら違いは出ないが、ソフトならロジスティック回帰のが良さそう
+
+```{r}
 tr %>%
   filter(acc_sd < 100) %>% 
   transmute(TTF,
@@ -117,16 +148,79 @@ tr %>%
   scale_colour_viridis_c()
 ```
 
+### 特徴量importance
+
+- 偏自己相関の第4主成分が効きまくってる模様(正直謎)
 
 ```{r plot_importance}
 impo %>% 
-  ggplot(aes(reorder(Feature, Gain), Gain))+
+  gather(type, importance, -Feature) %>% 
+  ggplot(aes(reorder(Feature, importance), importance))+
   geom_bar(stat = "identity")+
-  coord_flip()
+  coord_flip()+
+  facet_wrap(~type)
+```
 
+### TTFと予測確率の関係
+
+- TTF2.5 ~ 15にも予測確率の高いものがあるが、 ~ 2で全くない。
+- stackingのmeta featureとして使える可能性がある！？
+- TTF 0.3 ~ 2を当てるモデルを作っても良いかも
+
+```{r plot_TTF_pred_glm}
 tr %>%
-  ggplot(aes(type, pred_type, colour = TTF))+
-  geom_point(position = "jitter")+
-  scale_colour_viridis_c()
+  filter(acc_sd < 100) %>% 
+  transmute(TTF,
+            label = label,
+            pred_xgb = cv_type$pred,
+            pred_glm = fit_glm_type$fitted.values) %>% 
+  ggplot(aes(pred_xgb, TTF))+
+  geom_point()
+```
+
+# kien1.448 にマージ
+
+```{r ,eval=FALSE}
+kien <- read_csv("kien_1448.csv")
+dtest <- read_csv("data/features/features.csv") %>% 
+  filter(is.na(TTF)) %>% 
+  select(colnames(dtrain)) %>% 
+  as.matrix() %>% 
+  xgb.DMatrix()
+pred_xgb <- predict(fit_type, dtest) 
+kien %>% 
+  mutate(pred_type = pred_xgb) %>% 
+  transmute(seg_id, 
+            time_to_failure = if_else(pred_type > 0.5, 0.15, time_to_failure)) %>% 
+  write_csv("data/submit/kien1448_kur0cky_afterpulse.csv")
+```
+
+## FPR vs TPR
+
+```{r}
+df <- tibble(type = label,
+       pred_type = cv_type$pred) %>% 
+  arrange(pred_type)
+
+res <- tibble()
+for(i in 1:nrow(df)){
+  res <- df %>% 
+    mutate(pred = c(rep(0,i), rep(1,nrow(df)-i)) ) %>% 
+    summarise(TPR = sum(pred==1 & type==1)/sum(type),
+              FPR = sum(pred==1 & type==0)/sum(type==0),
+              prob = pred_type[i]) %>% 
+    bind_rows(res)
+}
+res %>% 
+  ggplot(aes(FPR, TPR))+
+  geom_line()
+res %>% 
+  ggplot(aes(prob, TPR - FPR))+
+  geom_line()
+
+res %>% 
+  arrange(FPR) %>% 
+  mutate(diff = FPR - lag(FPR, 1)) %>% 
+  summarise(AUC = sum(TPR * diff, na.rm=T))
 ```
 
